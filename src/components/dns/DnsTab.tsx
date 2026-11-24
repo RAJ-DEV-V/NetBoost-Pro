@@ -70,25 +70,50 @@ export const DnsTab: React.FC<DnsTabProps> = ({
 
   const handleRunBenchmark = async () => {
     setIsBenchmarking(true);
-    const results = await onBenchmark();
-    setBenchmarks(results);
-    setIsBenchmarking(false);
+    try {
+      const results = await onBenchmark();
+      if (results && Array.isArray(results)) {
+        setBenchmarks(results);
+      }
+    } catch (err) {
+      console.warn('DNS benchmark error:', err);
+    } finally {
+      setIsBenchmarking(false);
+    }
   };
 
   const handleApply = async () => {
     const preset = presets.find((p) => p.id === selectedPreset);
     if (!preset) return;
-    const res = await onApplyDns(
-      preset.id,
-      [preset.ipv4Primary, preset.ipv4Secondary],
-      preset.ipv6Primary ? [preset.ipv6Primary, preset.ipv6Secondary!] : undefined
-    );
-    setActionResult(res);
+    try {
+      const res = await onApplyDns(
+        preset.id,
+        [preset.ipv4Primary, preset.ipv4Secondary],
+        preset.ipv6Primary ? [preset.ipv6Primary, preset.ipv6Secondary!] : undefined
+      );
+      setActionResult(res);
+    } catch (err: any) {
+      setActionResult({
+        success: false,
+        actionId: 'dns_apply',
+        title: 'DNS Update Notice',
+        message: err?.message || 'Could not change DNS directly. Administrator elevation required.',
+      });
+    }
   };
 
   const handleRestore = async () => {
-    const res = await onRestoreDhcp();
-    setActionResult(res);
+    try {
+      const res = await onRestoreDhcp();
+      setActionResult(res);
+    } catch (err: any) {
+      setActionResult({
+        success: false,
+        actionId: 'dns_restore',
+        title: 'DNS Restore Notice',
+        message: err?.message || 'Could not restore DHCP DNS automatically.',
+      });
+    }
   };
 
   return (
@@ -136,11 +161,11 @@ export const DnsTab: React.FC<DnsTabProps> = ({
           </span>
           <div className="flex items-center space-x-3 text-sm">
             <span className="font-bold text-white">
-              IPv4: <strong className="text-neon-cyan">{dnsConfig?.ipv4Servers.join(', ') || '172.19.2.254 (DHCP)'}</strong>
+              IPv4: <strong className="text-neon-cyan">{Array.isArray(dnsConfig?.ipv4Servers) && dnsConfig.ipv4Servers.length > 0 ? dnsConfig.ipv4Servers.join(', ') : '172.19.2.254, 172.19.2.252'}</strong>
             </span>
             <span className="text-slate-500">|</span>
             <span className="text-slate-400">
-              Mode: <strong className="text-neon-green">{dnsConfig?.isDhcp ? 'Automatic (DHCP)' : 'Static Custom'}</strong>
+              Mode: <strong className="text-neon-green">{dnsConfig?.isDhcp ? 'Automatic (DHCP)' : 'Static Custom (Anycast)'}</strong>
             </span>
           </div>
         </div>
@@ -150,7 +175,8 @@ export const DnsTab: React.FC<DnsTabProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {presets.map((preset) => {
           const isSelected = selectedPreset === preset.id;
-          const bench = benchmarks.find((b) => b.presetId === preset.id);
+          const isCurrentlyActive = Array.isArray(dnsConfig?.ipv4Servers) && dnsConfig.ipv4Servers.includes(preset.ipv4Primary);
+          const bench = Array.isArray(benchmarks) ? benchmarks.find((b) => b.presetId === preset.id) : null;
 
           return (
             <div
@@ -165,11 +191,19 @@ export const DnsTab: React.FC<DnsTabProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-bold text-lg text-white">{preset.name}</span>
-                  {isSelected && (
-                    <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-neon-blue/20 text-neon-blue">
-                      Selected
-                    </span>
-                  )}
+                  <div className="flex items-center space-x-1.5">
+                    {isCurrentlyActive && (
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-neon-green/20 text-neon-green flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Active</span>
+                      </span>
+                    )}
+                    {isSelected && (
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-neon-blue/20 text-neon-blue">
+                        Selected
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed mb-4">{preset.description}</p>
 

@@ -178,6 +178,36 @@ export function App() {
     return res;
   };
 
+  const handleApplyDns = async (presetId: string, ipv4: string[], ipv6?: string[]) => {
+    setIsOptimizing(true);
+    try {
+      const adapter = activeAdapter?.name || 'Wi-Fi';
+      const res = await IPC.applyDnsPreset(adapter, presetId, ipv4, ipv6);
+      const updatedDns = await IPC.getDnsConfig(adapter);
+      if (updatedDns) {
+        setDnsConfig(updatedDns);
+      }
+      return res;
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  const handleRestoreDhcp = async () => {
+    setIsOptimizing(true);
+    try {
+      const adapter = activeAdapter?.name || 'Wi-Fi';
+      const res = await IPC.restoreDnsDhcp(adapter);
+      const updatedDns = await IPC.getDnsConfig(adapter);
+      if (updatedDns) {
+        setDnsConfig(updatedDns);
+      }
+      return res;
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
   const activeAdapter = adapters.find((a) => a.status === 'Up') || adapters[0] || null;
 
   return (
@@ -268,10 +298,8 @@ export function App() {
             <DnsTab
               dnsConfig={dnsConfig}
               onBenchmark={() => IPC.benchmarkDns()}
-              onApplyDns={(id, v4, v6) =>
-                IPC.applyDnsPreset(activeAdapter?.name || 'Wi-Fi', id, v4, v6)
-              }
-              onRestoreDhcp={() => IPC.restoreDnsDhcp(activeAdapter?.name || 'Wi-Fi')}
+              onApplyDns={handleApplyDns}
+              onRestoreDhcp={handleRestoreDhcp}
               isApplying={isOptimizing}
             />
           )}

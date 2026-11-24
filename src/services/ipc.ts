@@ -328,6 +328,64 @@ function getSimulatedFallback<T>(cmd: string, args: Record<string, unknown>): T 
         ],
       } as unknown as T;
 
+    case 'get_dns_configuration':
+      return {
+        adapterName: 'Wi-Fi',
+        isDhcp: true,
+        ipv4Servers: ['172.19.2.254', '172.19.2.252'],
+        ipv6Servers: [],
+      } as unknown as T;
+
+    case 'benchmark_dns_servers':
+      return [
+        {
+          presetId: 'cloudflare',
+          name: 'Cloudflare',
+          primaryIp: '1.1.1.1',
+          latencyMs: 63,
+          status: 'Success',
+          resolvedIp: '104.16.132.229',
+        },
+        {
+          presetId: 'google',
+          name: 'Google Public DNS',
+          primaryIp: '8.8.8.8',
+          latencyMs: 55,
+          status: 'Success',
+          resolvedIp: '142.250.193.206',
+        },
+        {
+          presetId: 'quad9',
+          name: 'Quad9 Secure',
+          primaryIp: '9.9.9.9',
+          latencyMs: 42,
+          status: 'Success',
+          resolvedIp: '9.9.9.9',
+        },
+      ] as unknown as T;
+
+    case 'apply_dns_configuration': {
+      const servers = (args.ipv4Servers as string[]) || ['1.1.1.1', '1.0.0.1'];
+      const adapter = (args.adapterName as string) || 'Wi-Fi';
+      return {
+        success: true,
+        actionId: 'dns_apply',
+        title: 'DNS Configured',
+        message: `Configured Anycast DNS (${servers.join(', ')}) on ${adapter}`,
+        newValue: servers.join(', '),
+      } as unknown as T;
+    }
+
+    case 'restore_dns_configuration': {
+      const adapter = (args.adapterName as string) || 'Wi-Fi';
+      return {
+        success: true,
+        actionId: 'dns_restore',
+        title: 'DNS Restored to DHCP',
+        message: `Restored automatic DHCP DNS on ${adapter}`,
+      } as unknown as T;
+    }
+
     case 'get_optimization_history':
       return [
         {
