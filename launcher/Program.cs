@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -14,6 +16,23 @@ namespace NetBoostPro
         {
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
             string scriptPath = Path.Combine(appDir, @"scripts\desktop-agent.ps1");
+            string distPath = Path.Combine(appDir, @"dist\index.html");
+
+            // Universal self-contained fallback: If files do not exist beside executable
+            // (e.g. running from a friend's Downloads folder or desktop), deploy to LocalAppData
+            string installDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "NetBoostPro");
+
+            if (!File.Exists(scriptPath) || !File.Exists(distPath))
+            {
+                scriptPath = Path.Combine(installDir, @"scripts\desktop-agent.ps1");
+                distPath = Path.Combine(installDir, @"dist\index.html");
+
+                if (!File.Exists(scriptPath) || !File.Exists(distPath))
+                {
+                    ExtractEmbeddedPayload(installDir);
+                }
+                appDir = installDir;
+            }
 
             // 1. Ensure backend agent is running
             if (!IsBackendRunning(48123))
@@ -28,12 +47,12 @@ namespace NetBoostPro
                         CreateNoWindow = true,
                         UseShellExecute = false
                     };
-                    Process.Start(psi);
+                    try { Process.Start(psi); } catch { }
                 }
             }
 
-            // Wait up to 5 seconds for backend to answer
-            for (int i = 0; i < 25; i++)
+            // Wait up to 6 seconds for backend to answer
+            for (int i = 0; i < 30; i++)
             {
                 if (IsBackendRunning(48123)) break;
                 Thread.Sleep(200);
@@ -57,13 +76,46 @@ namespace NetBoostPro
                     Arguments = string.Format("--app=\"{0}\" --user-data-dir=\"{1}\" --window-size=1280,840 --app-id=\"com.netboostpro.app\"", targetUrl, userProfile),
                     UseShellExecute = true
                 };
-                Process.Start(edgePsi);
+                try { Process.Start(edgePsi); } catch { Process.Start(targetUrl); }
             }
             else
             {
                 // Fallback to standard browser launch
                 Process.Start(targetUrl);
             }
+        }
+
+        static void ExtractEmbeddedPayload(string targetDirectory)
+        {
+            try
+            {
+                if (!Directory.Exists(targetDirectory)) Directory.CreateDirectory(targetDirectory);
+                Assembly asm = Assembly.GetExecutingAssembly();
+                using (Stream stream = asm.GetManifestResourceStream("Payload"))
+                {
+                    if (stream != null)
+                    {
+                        using (ZipArchive archive = new ZipArchive(stream))
+                        {
+                            foreach (ZipArchiveEntry entry in archive.Entries)
+                            {
+                                string fullPath = Path.Combine(targetDirectory, entry.FullName);
+                                if (string.IsNullOrEmpty(entry.Name))
+                                {
+                                    Directory.CreateDirectory(fullPath);
+                                }
+                                else
+                                {
+                                    string dir = Path.GetDirectoryName(fullPath);
+                                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                                    entry.ExtractToFile(fullPath, true);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         static bool IsBackendRunning(int port)

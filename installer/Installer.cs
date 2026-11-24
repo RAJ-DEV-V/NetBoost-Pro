@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.IO.Compression;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace NetBoostProInstaller
@@ -15,7 +17,7 @@ namespace NetBoostProInstaller
 
         public InstallerForm()
         {
-            this.Text = "NetBoost Pro - Windows 11 Installer";
+            this.Text = "NetBoost Pro - Universal Windows 11 Installer";
             this.Size = new Size(540, 360);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -107,39 +109,70 @@ namespace NetBoostProInstaller
                 }
 
                 progressBar.Value = 35;
-                statusLabel.Text = "Copying core application binaries...";
+                statusLabel.Text = "Deploying core application binaries...";
 
-                // Copy NetBoostPro.exe
-                string sourceExe = Path.Combine(sourceDir, "NetBoostPro.exe");
-                if (File.Exists(sourceExe))
+                Assembly asm = Assembly.GetExecutingAssembly();
+                string installedExe = Path.Combine(targetDir, "NetBoostPro.exe");
+
+                // 1. Extract Launcher executable (from embedded resource or fallback to source folder)
+                bool launcherExtracted = false;
+                using (Stream s = asm.GetManifestResourceStream("Launcher"))
                 {
-                    File.Copy(sourceExe, Path.Combine(targetDir, "NetBoostPro.exe"), true);
+                    if (s != null)
+                    {
+                        using (FileStream fs = new FileStream(installedExe, FileMode.Create, FileAccess.Write))
+                        {
+                            s.CopyTo(fs);
+                        }
+                        launcherExtracted = true;
+                    }
+                }
+                if (!launcherExtracted)
+                {
+                    string localExe = Path.Combine(sourceDir, "NetBoostPro.exe");
+                    if (File.Exists(localExe)) File.Copy(localExe, installedExe, true);
                 }
 
-                // Copy scripts
-                string targetScripts = Path.Combine(targetDir, "scripts");
-                if (!Directory.Exists(targetScripts)) Directory.CreateDirectory(targetScripts);
-                string sourceScript = Path.Combine(sourceDir, @"scripts\desktop-agent.ps1");
-                if (File.Exists(sourceScript))
+                progressBar.Value = 65;
+                statusLabel.Text = "Extracting frontend and backend engine...";
+
+                // 2. Extract Payload archive (scripts + dist) from embedded resource or fallback
+                bool payloadExtracted = false;
+                using (Stream s = asm.GetManifestResourceStream("Payload"))
                 {
-                    File.Copy(sourceScript, Path.Combine(targetScripts, "desktop-agent.ps1"), true);
+                    if (s != null)
+                    {
+                        using (ZipArchive archive = new ZipArchive(s))
+                        {
+                            foreach (ZipArchiveEntry entry in archive.Entries)
+                            {
+                                string fullPath = Path.Combine(targetDir, entry.FullName);
+                                if (string.IsNullOrEmpty(entry.Name))
+                                {
+                                    Directory.CreateDirectory(fullPath);
+                                }
+                                else
+                                {
+                                    string p = Path.GetDirectoryName(fullPath);
+                                    if (!Directory.Exists(p)) Directory.CreateDirectory(p);
+                                    entry.ExtractToFile(fullPath, true);
+                                }
+                            }
+                        }
+                        payloadExtracted = true;
+                    }
                 }
-
-                progressBar.Value = 60;
-                statusLabel.Text = "Deploying frontend telemetry assets...";
-
-                // Copy dist
-                string sourceDist = Path.Combine(sourceDir, "dist");
-                string targetDist = Path.Combine(targetDir, "dist");
-                if (Directory.Exists(sourceDist))
+                if (!payloadExtracted)
                 {
-                    CopyDirectory(sourceDist, targetDist);
+                    string localScripts = Path.Combine(sourceDir, "scripts");
+                    if (Directory.Exists(localScripts)) CopyDirectory(localScripts, Path.Combine(targetDir, "scripts"));
+                    string localDist = Path.Combine(sourceDir, "dist");
+                    if (Directory.Exists(localDist)) CopyDirectory(localDist, Path.Combine(targetDir, "dist"));
                 }
 
                 progressBar.Value = 85;
                 statusLabel.Text = "Creating Desktop and Start Menu shortcuts...";
 
-                string installedExe = Path.Combine(targetDir, "NetBoostPro.exe");
                 CreateShortcut(installedExe, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "NetBoost Pro.lnk"));
                 
                 string startMenu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs");

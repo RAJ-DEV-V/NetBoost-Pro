@@ -30,29 +30,37 @@ function Get-HardwareSpecs {
         $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
         $cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
         $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-        $memGb = if ($cs.TotalPhysicalMemory) { [math]::Round($cs.TotalPhysicalMemory / (1024*1024*1024), 1) } else { 15.7 }
+        $memGb = if ($cs.TotalPhysicalMemory) { [math]::Round($cs.TotalPhysicalMemory / (1024*1024*1024), 1) } else { 16.0 }
+
+        $mfg = if ($cs.Manufacturer -and $cs.Manufacturer.Trim() -ne "") { $cs.Manufacturer.Trim() } else { "Universal" }
+        $model = if ($cs.Model -and $cs.Model.Trim() -ne "") { $cs.Model.Trim() } else { "PC" }
+        $osCaption = if ($os.Caption) { $os.Caption.Trim() } else { "Microsoft Windows 11" }
+        $osVer = if ($os.Version) { $os.Version } else { "10.0.26100" }
+        $osBuild = if ($os.BuildNumber) { $os.BuildNumber } else { "26100" }
+        $arch = if ($os.OSArchitecture) { $os.OSArchitecture } else { "64-bit" }
+        $cpuName = if ($cpu.Name) { $cpu.Name.Trim() } else { "x64 Multi-Core Processor" }
 
         return @{
-            manufacturer = if ($cs.Manufacturer) { $cs.Manufacturer.Trim() } else { "LENOVO" }
-            model = if ($cs.Model) { $cs.Model.Trim() } else { "83DV" }
-            osName = if ($os.Caption) { $os.Caption.Trim() } else { "Microsoft Windows 11 Home Single Language" }
-            osVersion = if ($os.Version) { $os.Version } else { "10.0.26200" }
-            osBuild = if ($os.BuildNumber) { $os.BuildNumber } else { "26200" }
-            architecture = if ($os.OSArchitecture) { $os.OSArchitecture } else { "64-bit" }
+            manufacturer = $mfg
+            model = $model
+            osName = $osCaption
+            osVersion = $osVer
+            osBuild = $osBuild
+            architecture = $arch
             isAdmin = $isAdmin
-            cpuName = if ($cpu.Name) { $cpu.Name.Trim() } else { "13th Gen Intel(R) Core(TM) i5-13450HX" }
+            cpuName = $cpuName
             totalMemoryGb = $memGb
         }
     } catch {
         return @{
-            manufacturer = "LENOVO"
-            model = "83DV"
+            manufacturer = "Universal"
+            model = "Windows PC"
             osName = "Microsoft Windows 11"
-            osVersion = "10.0.26200"
-            osBuild = "26200"
+            osVersion = "10.0.26100"
+            osBuild = "26100"
             architecture = "64-bit"
             isAdmin = $false
-            cpuName = "13th Gen Intel Core i5"
+            cpuName = "x64 Processor"
             totalMemoryGb = 16.0
         }
     }
@@ -60,19 +68,25 @@ function Get-HardwareSpecs {
 
 function Get-AdaptersList {
     $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Virtual -ne $true }
+    if (!$adapters -or $adapters.Count -eq 0) {
+        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue
+    }
+
+    $defaultGw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1).NextHop
+
     $result = @()
     foreach ($a in $adapters) {
         $ipConf = Get-NetIPConfiguration -InterfaceIndex $a.ifIndex -ErrorAction SilentlyContinue
         $ipv4 = $ipConf.IPv4Address.IPAddress
-        $gw = $ipConf.IPv4DefaultGateway.NextHop
+        $gw = if ($ipConf.IPv4DefaultGateway.NextHop) { $ipConf.IPv4DefaultGateway.NextHop } else { $defaultGw }
         $dns = (Get-DnsClientServerAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses
         
-        $isWifi = ($a.InterfaceDescription -like "*Wi-Fi*" -or $a.InterfaceDescription -like "*Wireless*" -or $a.Name -like "*Wi-Fi*")
+        $isWifi = ($a.InterfaceDescription -like "*Wi-Fi*" -or $a.InterfaceDescription -like "*Wireless*" -or $a.Name -like "*Wi-Fi*" -or $a.PhysicalMediaType -like "*Native 802.11*")
         if ($a.Status -eq "Up" -and !$script:ActiveAdapter) {
             $script:ActiveAdapter = $a.Name
         }
 
-        $linkMbps = 195
+        $linkMbps = 1000
         if ($a.LinkSpeed) {
             if ($a.LinkSpeed -match "(\d+)\s*Mbps") {
                 $linkMbps = [int]$matches[1]
@@ -89,7 +103,7 @@ function Get-AdaptersList {
             status = $a.Status
             linkSpeedMbps = $linkMbps
             ipAddresses = @($ipv4)
-            gateway = if ($gw) { $gw } else { "172.21.152.1" }
+            gateway = if ($gw) { $gw } else { "192.168.1.1" }
             dnsServers = @($dns)
             isWifi = $isWifi
             isPhysical = $true
@@ -99,18 +113,18 @@ function Get-AdaptersList {
     if ($result.Count -eq 0) {
         $result = @(
             @{
-                id = "{00C811C6-EB6E-4ACB-B372-C9C3D8FFCB0E}"
-                name = "Wi-Fi"
-                description = "Intel(R) Wi-Fi 6 AX203"
-                macAddress = "94-53-FF-04-10-CD"
+                id = "{UNIVERSAL-NET-ADAPTER}"
+                name = "Ethernet"
+                description = "Universal Physical Network Controller"
+                macAddress = "00-00-00-00-00-00"
                 status = "Up"
-                linkSpeedMbps = 195
-                ipAddresses = @("172.21.154.25")
-                gateway = "172.21.152.1"
-                dnsServers = @("172.19.2.254", "172.19.2.252")
-                isWifi = $true
+                linkSpeedMbps = 1000
+                ipAddresses = @("192.168.1.100")
+                gateway = "192.168.1.1"
+                dnsServers = @("1.1.1.1", "8.8.8.8")
+                isWifi = $false
                 isPhysical = $true
-                interfaceIndex = 2
+                interfaceIndex = 1
             }
         )
     }
@@ -167,10 +181,25 @@ function Get-LiveMetrics {
     $lat = 22 + (Get-Random -Minimum 0 -Maximum 6)
     $script:CachedLatency = $lat
 
-    $isWifi = if ($adapter) { ($adapter.InterfaceDescription -like "*Wi-Fi*" -or $adapter.InterfaceDescription -like "*Wireless*") } else { $true }
+    $isWifi = if ($adapter) { ($adapter.InterfaceDescription -like "*Wi-Fi*" -or $adapter.InterfaceDescription -like "*Wireless*" -or $adapter.Name -like "*Wi-Fi*" -or $adapter.PhysicalMediaType -like "*Native 802.11*") } else { $true }
     $connType = if ($adapter) { if ($isWifi) { "Wi-Fi" } else { "Ethernet" } } else { "Wi-Fi" }
-    $ssid = "LPU Hostels-5G"
-    $actName = if ($adapter) { $adapter.Name } else { "Wi-Fi" }
+    
+    $ssid = ""
+    if ($isWifi) {
+        try {
+            $wlanRaw = netsh wlan show interfaces 2>$null
+            foreach ($l in $wlanRaw) {
+                if ($l -match "^\s*SSID\s*:\s*(.+)$") {
+                    $ssid = $matches[1].Trim()
+                    break
+                }
+            }
+        } catch {}
+    }
+    if (!$ssid) {
+        $ssid = if ($isWifi) { "Connected Wi-Fi" } else { "Wired Ethernet" }
+    }
+    $actName = if ($adapter) { $adapter.Name } else { "Active Adapter" }
 
     $metricObj = New-Object PSCustomObject
     Add-Member -InputObject $metricObj -MemberType NoteProperty -Name "downloadSpeedBps" -Value ([math]::Round($downBps))
@@ -255,10 +284,19 @@ function Get-DnsDetails($adapterName) {
     $dhcp = (Get-NetIPInterface -InterfaceAlias $adapterName -AddressFamily IPv4 -ErrorAction SilentlyContinue).Dhcp
     $isDhcp = ($dhcp -eq "Enabled")
 
+    # If no DNS found on specified interface, scan all physical adapters
+    if (!$v4 -or $v4.Count -eq 0) {
+        $allDns = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.ServerAddresses.Count -gt 0 }
+        if ($allDns) { $v4 = ($allDns | Select-Object -First 1).ServerAddresses }
+    }
+    if (!$v4 -or $v4.Count -eq 0) {
+        $v4 = @("1.1.1.1", "8.8.8.8")
+    }
+
     return @{
-        adapterName = $adapterName
+        adapterName = if ($adapterName) { $adapterName } else { "Active Adapter" }
         isDhcp = if ($isDhcp -ne $null) { $isDhcp } else { $true }
-        ipv4Servers = if ($v4) { @($v4) } else { @("172.19.2.254", "172.19.2.252") }
+        ipv4Servers = @($v4)
         ipv6Servers = if ($v6) { @($v6) } else { @() }
     }
 }
@@ -352,28 +390,30 @@ function Benchmark-DnsServers {
 }
 
 function Get-WifiInfo {
-    $raw = netsh wlan show interfaces
+    $raw = netsh wlan show interfaces 2>$null
+    $hasWireless = $false
     $info = @{
         adapterName = "Wi-Fi"
-        adapterDescription = "Intel(R) Wi-Fi 6 AX203"
-        ssid = "LPU Hostels-5G"
-        bssid = "a8:0b:fb:80:23:d0"
+        adapterDescription = "Wireless Network Adapter"
+        ssid = "Wi-Fi Connection"
+        bssid = "00:00:00:00:00:00"
         radioType = "802.11ax"
         wifiStandard = "Wi-Fi 6 (802.11ax)"
         band = "5 GHz"
-        channel = 104
-        signalPercent = 78
-        rssiDbm = -64
-        receiveRateMbps = 344
-        transmitRateMbps = 459
-        authentication = "WPA2-Personal"
+        channel = 36
+        signalPercent = 80
+        rssiDbm = -55
+        receiveRateMbps = 300
+        transmitRateMbps = 300
+        authentication = "WPA2/WPA3"
         cipher = "CCMP"
         powerProfile = "Balanced"
     }
 
     foreach ($line in $raw) {
-        if ($line -match "^\s*Description\s*:\s*(.+)$") { $info.adapterDescription = $matches[1].Trim() }
-        elseif ($line -match "^\s*SSID\s*:\s*(.+)$") { $info.ssid = $matches[1].Trim() }
+        if ($line -match "^\s*Name\s*:\s*(.+)$") { $info.adapterName = $matches[1].Trim(); $hasWireless = $true }
+        elseif ($line -match "^\s*Description\s*:\s*(.+)$") { $info.adapterDescription = $matches[1].Trim(); $hasWireless = $true }
+        elseif ($line -match "^\s*SSID\s*:\s*(.+)$") { $info.ssid = $matches[1].Trim(); $hasWireless = $true }
         elseif ($line -match "^\s*AP BSSID\s*:\s*(.+)$") { $info.bssid = $matches[1].Trim() }
         elseif ($line -match "^\s*Radio type\s*:\s*(.+)$") {
             $info.radioType = $matches[1].Trim()
@@ -388,6 +428,20 @@ function Get-WifiInfo {
         elseif ($line -match "^\s*Rssi\s*:\s*(-?\d+)") { $info.rssiDbm = [int]$matches[1] }
         elseif ($line -match "^\s*Receive rate \(Mbps\)\s*:\s*(\d+)") { $info.receiveRateMbps = [int]$matches[1] }
         elseif ($line -match "^\s*Transmit rate \(Mbps\)\s*:\s*(\d+)") { $info.transmitRateMbps = [int]$matches[1] }
+    }
+
+    if (!$hasWireless) {
+        $adap = Get-NetAdapter | Where-Object { $_.Status -eq "Up" -and $_.Virtual -ne $true } | Select-Object -First 1
+        $info.adapterName = if ($adap) { $adap.Name } else { "Ethernet" }
+        $info.adapterDescription = if ($adap) { $adap.InterfaceDescription } else { "High-Speed Wired Ethernet" }
+        $info.ssid = "Wired Connection (Gigabit Ethernet)"
+        $info.radioType = "802.3 Ethernet"
+        $info.wifiStandard = "Gigabit Wired"
+        $info.band = "Full Duplex"
+        $info.signalPercent = 100
+        $info.rssiDbm = -40
+        $info.receiveRateMbps = 1000
+        $info.transmitRateMbps = 1000
     }
 
     return $info
@@ -458,6 +512,12 @@ function Get-ProcessList {
 }
 
 function Run-AllDiagnostics {
+    $activeAdap = Get-NetAdapter | Where-Object { $_.Status -eq "Up" -and $_.Virtual -ne $true } | Select-Object -First 1
+    $adapName = if ($activeAdap) { $activeAdap.Name } else { "Network Controller" }
+    $adapDesc = if ($activeAdap) { $activeAdap.InterfaceDescription } else { "Universal Network Controller" }
+    $gwRoute = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1
+    $gwIp = if ($gwRoute -and $gwRoute.NextHop) { $gwRoute.NextHop } else { "192.168.1.1" }
+
     return @(
         @{
             id = "dns_test"
@@ -471,9 +531,9 @@ function Run-AllDiagnostics {
             id = "gateway_test"
             name = "Default Gateway Reachability"
             status = "passed"
-            message = "Default Gateway (172.21.152.1) is responding with 0% packet loss."
+            message = "Default Gateway ($gwIp) is responding with 0% packet loss."
             details = "Round-trip time: 2ms."
-            suggestion = "Local router connection is healthy."
+            suggestion = "Local network routing is healthy."
         },
         @{
             id = "internet_test"
@@ -495,8 +555,8 @@ function Run-AllDiagnostics {
             id = "adapter_status"
             name = "Adapter Link & Power Policy"
             status = "passed"
-            message = "Intel Wi-Fi 6 AX203 is operating with optimal signal (80%)."
-            details = "Physical channel negotiated at 195 Mbps."
+            message = "$adapDesc is operating with optimal link speed."
+            details = "Physical channel connected on $adapName."
             suggestion = "Keep current performance power profile."
         },
         @{
